@@ -4,7 +4,7 @@ import { getFirestore } from "https://www.gstatic.com/firebasejs/11.0.0/firebase
 
 const firebaseConfig = {
   apiKey: "AIzaSyAx_XnFSSVvTZpEMICFKj--AgLL_jhjWvM",
-  authDomain: "mediclock-v2.firebaseapp.com",
+  authDomain: "mediclock-v2.vercel.app",
   projectId: "mediclock-v2",
   storageBucket: "mediclock-v2.firebasestorage.app",
   messagingSenderId: "243738183730",
