@@ -1,3 +1,4 @@
+import { browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
 import { auth } from "./firebase.js";
 import { GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
 
@@ -24,3 +25,5 @@ export function onAuth(callback) {
 export function setCurrentUser(user) {
   currentUser = user;
 }
+// Configurar persistencia local
+setPersistence(auth, browserLocalPersistence).catch(e => console.error(e));
