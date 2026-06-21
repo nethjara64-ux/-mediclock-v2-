@@ -29,9 +29,8 @@ window.showUserMenu = () => {
     logout();
   }
 };
-
+getRedirectResult(auth).catch(e => console.error(e));
 onAuth(user => {
-  getRedirectResult(auth).catch(e => console.error(e));
   document.getElementById("loadingScreen").style.display = "none";
   if (user) {
     currentUser = user;
