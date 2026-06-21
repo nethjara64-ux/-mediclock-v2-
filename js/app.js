@@ -1,3 +1,5 @@
+
+// ── IMPORTS ────────────────────────────────────────────────────────────────
 import { auth, db } from "./firebase.js";
 import { loginGoogle, logout, onAuth } from "./auth.js";
 import { getRedirectResult } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
@@ -5,6 +7,8 @@ import { MED_DB, saveMed, deleteMed, subscribeMeds } from "./meds.js";
 import { subscribeLogs, saveLog, clearLogs, today, formatDate } from "./today.js";
 import { showToast, switchTab, openOverlay, closeOverlay, startClock } from "./ui.js";
 import { initFeedback } from "./feedback.js";
+import { saveProfile, deleteProfile, subscribeProfiles, calcAge } from "./profiles.js";
+import { savePhoto, subscribePhotos, deletePhoto, openCamera } from "./photos.js";
 import { collection, doc, setDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
 
 // ── STATE ──────────────────────────────────────────────────────────────────
@@ -17,6 +21,13 @@ let historyFilter = "all";
 let alerted = new Set();
 let unsubMeds = null;
 let unsubLogs = null;
+let profiles = [];
+let activeProfileId = null;
+let unsubProfiles = null;
+let unsubPhotos = null;
+let photos = [];
+let editingProfileId = null;
+let pendingAvatarBase64 = null;
 
 // ── AUTH ───────────────────────────────────────────────────────────────────
 window.loginGoogle = loginGoogle;
@@ -25,16 +36,14 @@ window.showUserMenu = () => {
   if (confirm(`¿Cerrar sesión de ${currentUser.displayName}?`)) {
     if (unsubMeds) unsubMeds();
     if (unsubLogs) unsubLogs();
+    if (unsubProfiles) unsubProfiles();
     logout();
   }
 };
 
-// Handle redirect result from Google login
-// Handle redirect result from Google login
+// Handle redirect result FIRST
 getRedirectResult(auth).then(result => {
-  if (result?.user) {
-    console.log("Redirect login success:", result.user.displayName);
-  }
+  if (result?.user) console.log("Redirect OK:", result.user.displayName);
 }).catch(e => console.error("Redirect error:", e));
 
 onAuth(user => {
@@ -48,13 +57,13 @@ onAuth(user => {
     else av.textContent = user.displayName?.[0] || "?";
     document.getElementById("userName").textContent = user.displayName?.split(" ")[0] || "Usuario";
     subscribeData();
-    window._subscribeProfiles();
+    subscribeProfilesData();
     if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
   } else {
     currentUser = null;
     document.getElementById("loginScreen").style.display = "flex";
     document.getElementById("appScreen").style.display = "none";
-    meds = []; logs = [];
+    meds = []; logs = []; profiles = [];
   }
 });
 
@@ -63,6 +72,19 @@ function subscribeData() {
   unsubMeds = subscribeMeds(uid, data => { meds = data; renderAll(); });
   unsubLogs = subscribeLogs(uid, data => { logs = data; renderAll(); });
 }
+
+function subscribeProfilesData() {
+  const uid = currentUser.uid;
+  if (unsubProfiles) unsubProfiles();
+  unsubProfiles = subscribeProfiles(uid, data => {
+    profiles = data;
+    renderProfileBar();
+    if (activeProfileId) renderProfilePanel(activeProfileId);
+  });
+}
+
+// Keep backward compat
+window._subscribeProfiles = subscribeProfilesData;
 
 // ── CLOCK & ALERTS ─────────────────────────────────────────────────────────
 startClock(now => {
@@ -100,7 +122,6 @@ function renderToday() {
   const now = new Date();
   const nowMins = now.getHours()*60 + now.getMinutes();
   let doses = [];
-
   meds.filter(m => m.active).forEach(med => {
     med.times.forEach(t => {
       const [h,min] = t.split(":").map(Number);
@@ -110,17 +131,14 @@ function renderToday() {
     });
   });
   doses.sort((a,b) => a.tMins - b.tMins);
-
   const taken   = doses.filter(d => d.status==="taken").length;
   const missed  = doses.filter(d => d.status==="missed").length;
   const pending = doses.filter(d => d.status==="pending").length;
   const total   = doses.length || 1;
-
   document.getElementById("statTaken").textContent   = taken;
   document.getElementById("statPending").textContent = pending;
   document.getElementById("statMissed").textContent  = missed;
   document.getElementById("progressTaken").style.width = `${Math.round(taken/total*100)}%`;
-
   const banners = doses.filter(d => d.status==="pending" && Math.abs(d.tMins-nowMins)<=5);
   document.getElementById("alertBanners").innerHTML = banners.map(d => `
     <div class="alert-banner">
@@ -131,7 +149,6 @@ function renderToday() {
       </div>
       <button class="btn-take-now" onclick="markDose('${d.med.id}','${d.time}','taken')">Tomé ✓</button>
     </div>`).join("");
-
   const el = document.getElementById("todayList");
   if (!doses.length) {
     el.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><h3>Sin medicamentos hoy</h3><p>Agrega tus medicamentos en la pestaña "Medicamentos"</p></div>`;
@@ -142,8 +159,8 @@ function renderToday() {
     const sc = status==="taken"?"status-taken":status==="missed"?"status-missed":"status-pending";
     const si = status==="taken"?"✓":status==="missed"?"✕":"○";
     const actions = status==="pending"
-      ? `<button class="btn-take"  onclick="markDose('${med.id}','${time}','taken')">✓ Tomé</button>
-         <button class="btn-skip"  onclick="markDose('${med.id}','${time}','missed')">✕ Omitir</button>`
+      ? `<button class="btn-take" onclick="markDose('${med.id}','${time}','taken')">✓ Tomé</button>
+         <button class="btn-skip" onclick="markDose('${med.id}','${time}','missed')">✕ Omitir</button>`
       : status==="missed"
       ? `<button class="btn-take" onclick="markDose('${med.id}','${time}','taken')">↩ Tomé tarde</button>` : "";
     return `<div class="history-item" style="margin-bottom:8px;opacity:${status==="missed"?.7:1}">
@@ -168,55 +185,34 @@ window.markDose = async (medId, time, status) => {
 };
 
 // ── MEDS LIST ──────────────────────────────────────────────────────────────
-
 function todayStatus(med) {
   const td = today();
   const now = new Date();
   const nowMins = now.getHours()*60 + now.getMinutes();
   if (!med.times || !med.times.length) return "";
-
-  // Find next pending dose today
   const nextDose = med.times.find(t => {
     const [h,m] = t.split(":").map(Number);
-    const tMins = h*60+m;
     const log = logs.find(l => l.medId===med.id && l.date===td && l.time===t);
-    return !log && tMins >= nowMins;
+    return !log && (h*60+m) >= nowMins;
   });
-
-  // Find if all taken today
-  const allTaken = med.times.every(t => {
-    return logs.find(l => l.medId===med.id && l.date===td && l.time===t && l.status==="taken");
-  });
-
-  if (allTaken) {
-    return `<span style="font-size:12px;font-weight:600;color:var(--green);background:var(--green-light);padding:4px 10px;border-radius:20px;white-space:nowrap">✓ Tomado</span>`;
-  }
-
-  if (nextDose) {
-    return `<button class="btn-take" style="font-size:12px;white-space:nowrap" onclick="quickMark('${med.id}','${nextDose}')">✓ Tomé ${nextDose}</button>`;
-  }
-
-  // Check missed doses
+  const allTaken = med.times.every(t => logs.find(l => l.medId===med.id && l.date===td && l.time===t && l.status==="taken"));
+  if (allTaken) return `<span style="font-size:12px;font-weight:600;color:var(--green);background:var(--green-light);padding:4px 10px;border-radius:20px;white-space:nowrap">✓ Tomado</span>`;
+  if (nextDose) return `<button class="btn-take" style="font-size:12px;white-space:nowrap" onclick="quickMark('${med.id}','${nextDose}')">✓ Tomé ${nextDose}</button>`;
   const hasMissed = med.times.some(t => {
     const [h,m] = t.split(":").map(Number);
-    const tMins = h*60+m;
     const log = logs.find(l => l.medId===med.id && l.date===td && l.time===t);
-    return !log && tMins < nowMins;
+    return !log && (h*60+m) < nowMins;
   });
-
-  if (hasMissed) {
-    return `<span style="font-size:12px;font-weight:600;color:var(--red);background:var(--red-light);padding:4px 10px;border-radius:20px;white-space:nowrap">✕ Pendiente</span>`;
-  }
-
+  if (hasMissed) return `<span style="font-size:12px;font-weight:600;color:var(--red);background:var(--red-light);padding:4px 10px;border-radius:20px;white-space:nowrap">✕ Pendiente</span>`;
   return "";
 }
 
 window.quickMark = async (medId, time) => {
   const td = today();
-  const logId = `\${medId}_\${td}_\${time}`;
+  const logId = `${medId}_${td}_${time}`;
   await saveLog(currentUser.uid, { medId, date:td, time, status:"taken", ts:Date.now() }, logId);
   const med = meds.find(m => m.id===medId);
-  showToast("Dosis registrada ✓", `\${med.emoji} \${med.name} — \${time}`, "success");
+  showToast("Dosis registrada ✓", `${med.emoji} ${med.name} — ${time}`, "success");
 };
 
 function renderMeds() {
@@ -303,15 +299,14 @@ window.openMedModal = (id = null) => {
   document.getElementById("medColor").value = "blue";
   document.getElementById("medActive").value = "1";
   document.getElementById("medEmoji").value = "💊";
-
   if (id) {
     const med = meds.find(m => m.id===id);
     document.getElementById("medSearch").value = med.name;
     document.getElementById("doseInput").value = med.dose || "";
-    document.getElementById("medNotes").value  = med.notes  || "";
-    document.getElementById("medColor").value  = med.color  || "blue";
+    document.getElementById("medNotes").value  = med.notes || "";
+    document.getElementById("medColor").value  = med.color || "blue";
     document.getElementById("medActive").value = med.active ? "1" : "0";
-    document.getElementById("medEmoji").value  = med.emoji  || "💊";
+    document.getElementById("medEmoji").value  = med.emoji || "💊";
     pendingTimes = [...med.times];
   }
   renderTimesRow();
@@ -320,11 +315,8 @@ window.openMedModal = (id = null) => {
 };
 
 window.closeMedModal = () => closeOverlay("modalOverlay");
-document.getElementById("modalOverlay").addEventListener("click", function(e) {
-  if (e.target === this) window.closeMedModal();
-});
+document.getElementById("modalOverlay").addEventListener("click", function(e) { if (e.target===this) window.closeMedModal(); });
 
-// ── AUTOCOMPLETE ───────────────────────────────────────────────────────────
 document.getElementById("medSearch").addEventListener("input", function() {
   const q = this.value.trim().toLowerCase();
   const list = document.getElementById("autocompleteList");
@@ -333,10 +325,7 @@ document.getElementById("medSearch").addEventListener("input", function() {
   list.innerHTML = results.map(m => `
     <div class="autocomplete-item" onclick="selectMed(${JSON.stringify(m).replace(/"/g,'&quot;')})">
       <span class="med-emoji">${m.emoji}</span>
-      <div>
-        <div>${m.name}</div>
-        <div class="med-meta">${m.doses.join(" · ")}</div>
-      </div>
+      <div><div>${m.name}</div><div class="med-meta">${m.doses.join(" · ")}</div></div>
     </div>`).join("");
 });
 
@@ -349,7 +338,6 @@ window.selectMed = (med) => {
   document.getElementById("autocompleteList").innerHTML = "";
 };
 
-// ── TIMES ──────────────────────────────────────────────────────────────────
 window.addTime = () => {
   const t = document.getElementById("newTime").value;
   if (!t || pendingTimes.includes(t)) return;
@@ -358,17 +346,13 @@ window.addTime = () => {
   renderTimesRow();
 };
 
-window.removeTime = (t) => {
-  pendingTimes = pendingTimes.filter(x => x !== t);
-  renderTimesRow();
-};
+window.removeTime = (t) => { pendingTimes = pendingTimes.filter(x => x!==t); renderTimesRow(); };
 
 function renderTimesRow() {
   document.getElementById("timesRow").innerHTML = pendingTimes.map(t =>
     `<div class="time-chip">${t}<button onclick="removeTime('${t}')">×</button></div>`).join("");
 }
 
-// ── SAVE MED ───────────────────────────────────────────────────────────────
 window.saveMedForm = async () => {
   const name  = document.getElementById("medSearch").value.trim();
   const dose  = document.getElementById("doseInput").value.trim();
@@ -376,11 +360,9 @@ window.saveMedForm = async () => {
   const notes = document.getElementById("medNotes").value.trim();
   const color = document.getElementById("medColor").value;
   const active = document.getElementById("medActive").value === "1";
-
   if (!name) { document.getElementById("medSearch").focus(); return; }
   if (!dose) { showToast("Falta la dosis", "Escribe la dosis del medicamento", "error"); return; }
   if (!pendingTimes.length) { showToast("Falta el horario", "Agrega al menos una hora", "error"); return; }
-
   await saveMed(currentUser.uid, { name, dose, emoji, notes, color, times:[...pendingTimes], active }, editingId);
   window.closeMedModal();
   showToast(editingId ? "Medicamento actualizado" : "Medicamento agregado", `${emoji} ${name}`, "success");
@@ -404,42 +386,6 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js").catch(() => {});
 }
 
-// ── PROFILES & PHOTOS ──────────────────────────────────────────────────────
-import { saveProfile, deleteProfile, subscribeProfiles, emptyProfile, calcAge } from "./profiles.js";
-import { savePhoto, subscribePhotos, deletePhoto, openCamera, compressToBase64 } from "./photos.js";
-
-let profiles = [];
-let activeProfileId = null;
-let unsubProfiles = null;
-let unsubPhotos = null;
-let photos = [];
-let editingProfileId = null;
-let pendingAvatarBase64 = null;
-
-// Called after login — subscribe profiles
-const _origSubscribeData = subscribeData;
-function subscribeDataV2() {
-  _origSubscribeData && _origSubscribeData();
-  const uid = currentUser.uid;
-  unsubProfiles = subscribeProfiles(uid, data => {
-    profiles = data;
-    renderProfileBar();
-    if (activeProfileId) renderProfilePanel(activeProfileId);
-  });
-}
-
-// Override subscribeData
-window._subscribeProfiles = () => {
-  if (!currentUser) return;
-  const uid = currentUser.uid;
-  if (unsubProfiles) unsubProfiles();
-  unsubProfiles = subscribeProfiles(uid, data => {
-    profiles = data;
-    renderProfileBar();
-    if (activeProfileId) renderProfilePanel(activeProfileId);
-  });
-};
-
 // ── PROFILE BAR ────────────────────────────────────────────────────────────
 function renderProfileBar() {
   const bar = document.getElementById("profileBar");
@@ -453,7 +399,6 @@ function renderProfileBar() {
   }).join("") + `<button class="add-profile-btn" onclick="openProfileModal()" title="Agregar paciente">+</button>`;
 }
 
-// ── SELECT PROFILE ─────────────────────────────────────────────────────────
 window.selectProfile = (id) => {
   activeProfileId = id;
   renderProfileBar();
@@ -462,7 +407,6 @@ window.selectProfile = (id) => {
   document.querySelector('.tab-btn[data-tab="profile"]').classList.add("active");
 };
 
-// ── RENDER PROFILE PANEL ───────────────────────────────────────────────────
 function renderProfilePanel(id) {
   const p = profiles.find(x => x.id === id);
   if (!p) return;
@@ -497,18 +441,12 @@ function renderProfilePanel(id) {
         ${p.notes ? `<div class="profile-meta-item" style="grid-column:1/-1"><div class="profile-meta-label">Notas</div><div class="profile-meta-value">${p.notes}</div></div>` : ""}
       </div>
     </div>
-
-    <!-- FOTOS -->
     <div class="photos-section">
-      <div class="section-header">
-        <div class="section-title">📷 Fórmulas y evidencias</div>
-      </div>
+      <div class="section-header"><div class="section-title">📷 Fórmulas y evidencias</div></div>
       <div class="photos-grid" id="photosGrid">
         <div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--text3)">Cargando fotos...</div>
       </div>
     </div>`;
-
-  // Subscribe photos for this profile
   if (unsubPhotos) unsubPhotos();
   unsubPhotos = subscribePhotos(currentUser.uid, id, data => {
     photos = data.sort((a,b) => b.createdAt - a.createdAt);
@@ -516,7 +454,6 @@ function renderProfilePanel(id) {
   });
 }
 
-// ── PHOTOS GRID ────────────────────────────────────────────────────────────
 function renderPhotosGrid() {
   const grid = document.getElementById("photosGrid");
   if (!grid) return;
@@ -535,7 +472,6 @@ function renderPhotosGrid() {
       </div>`).join("")}`;
 }
 
-// ── ADD PHOTOS ─────────────────────────────────────────────────────────────
 window.addPhotoFormula = () => {
   openCamera(async (base64) => {
     await savePhoto(currentUser.uid, activeProfileId, { base64, title: "Fórmula médica", type: "formula" });
@@ -558,9 +494,7 @@ window.viewPhoto = (id) => {
   document.getElementById("photoViewer").classList.add("open");
 };
 
-window.closePhotoViewer = () => {
-  document.getElementById("photoViewer").classList.remove("open");
-};
+window.closePhotoViewer = () => document.getElementById("photoViewer").classList.remove("open");
 
 window.removePhoto = async (id) => {
   if (!confirm("¿Eliminar esta foto?")) return;
@@ -568,13 +502,11 @@ window.removePhoto = async (id) => {
   showToast("Foto eliminada", "", "info");
 };
 
-// ── PROFILE MODAL ──────────────────────────────────────────────────────────
 window.openProfileModal = (id = null) => {
   editingProfileId = id;
   pendingAvatarBase64 = null;
   document.getElementById("profileModalTitle").textContent = id ? "Editar paciente" : "Nuevo paciente";
   const preview = document.getElementById("profileAvatarPreview");
-
   if (id) {
     const p = profiles.find(x => x.id === id);
     document.getElementById("profileName").value      = p.name || "";
@@ -589,8 +521,8 @@ window.openProfileModal = (id = null) => {
     if (p.avatar) preview.innerHTML = `<img src="${p.avatar}">`;
     else preview.textContent = p.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
   } else {
-    ["profileName","profileBirthdate","profilePhone","profileCondition","profileDoctor","profileAllergies","profileNotes"].forEach(id => document.getElementById(id).value = "");
-    document.getElementById("profileGender").value    = "";
+    ["profileName","profileBirthdate","profilePhone","profileCondition","profileDoctor","profileAllergies","profileNotes"].forEach(i => document.getElementById(i).value = "");
+    document.getElementById("profileGender").value = "";
     document.getElementById("profileBloodType").value = "";
     preview.textContent = "?";
   }
@@ -598,13 +530,8 @@ window.openProfileModal = (id = null) => {
   setTimeout(() => document.getElementById("profileName").focus(), 100);
 };
 
-window.closeProfileModal = () => {
-  document.getElementById("profileModalOverlay").classList.remove("open");
-};
-
-document.getElementById("profileModalOverlay").addEventListener("click", function(e) {
-  if (e.target === this) window.closeProfileModal();
-});
+window.closeProfileModal = () => document.getElementById("profileModalOverlay").classList.remove("open");
+document.getElementById("profileModalOverlay").addEventListener("click", function(e) { if (e.target===this) window.closeProfileModal(); });
 
 window.changeProfileAvatar = () => {
   openCamera(async (base64) => {
@@ -642,9 +569,7 @@ window.saveProfileForm = async () => {
   window.closeProfileModal();
   activeProfileId = id;
   showToast(editingProfileId ? "Paciente actualizado" : "Paciente agregado", name, "success");
-  setTimeout(() => {
-    selectProfile(activeProfileId);
-  }, 500);
+  setTimeout(() => selectProfile(activeProfileId), 500);
 };
 
 window.removeProfile = async (id) => {
