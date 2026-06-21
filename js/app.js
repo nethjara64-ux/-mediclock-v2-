@@ -30,7 +30,12 @@ window.showUserMenu = () => {
 };
 
 // Handle redirect result from Google login
-getRedirectResult(auth).catch(e => console.error("Redirect error:", e));
+// Handle redirect result from Google login
+getRedirectResult(auth).then(result => {
+  if (result?.user) {
+    console.log("Redirect login success:", result.user.displayName);
+  }
+}).catch(e => console.error("Redirect error:", e));
 
 onAuth(user => {
   document.getElementById("loadingScreen").style.display = "none";
