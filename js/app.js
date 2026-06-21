@@ -1,7 +1,5 @@
-
+import { auth, db } from "./firebase.js";
 import { loginGoogle, logout, onAuth } from "./auth.js";
-import { getRedirectResult } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
-import { auth } from "./firebase.js";
 import { MED_DB, saveMed, deleteMed, subscribeMeds } from "./meds.js";
 import { subscribeLogs, saveLog, clearLogs, today, formatDate } from "./today.js";
 import { showToast, switchTab, openOverlay, closeOverlay, startClock } from "./ui.js";
@@ -29,7 +27,7 @@ window.showUserMenu = () => {
     logout();
   }
 };
-getRedirectResult(auth).catch(e => console.error(e));
+
 onAuth(user => {
   document.getElementById("loadingScreen").style.display = "none";
   if (user) {
