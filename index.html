@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MediClock — Recordatorio de Medicamentos</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="MediClock">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#2d7dd2">
+<meta name="description" content="Recordatorio inteligente de medicamentos con historial de dosis">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- LOADING -->
+<div class="loading-screen" id="loadingScreen">
+  <div class="spinner"></div>
+  <div style="font-size:14px;color:var(--text3)">Cargando MediClock...</div>
+</div>
+
+<!-- LOGIN -->
+<div class="login-screen" id="loginScreen" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">
+      <svg width="36" height="36" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2.2">
+        <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>
+      </svg>
+    </div>
+    <h1 class="login-title">Medi<span>Clock</span></h1>
+    <p class="login-sub">Tu recordatorio inteligente de medicamentos.<br>Tus datos seguros en la nube.</p>
+    <button class="btn-google" onclick="loginGoogle()">
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+      </svg>
+      Continuar con Google
+    </button>
+    <p class="login-footer">Al continuar aceptas que tus datos se guardan de forma segura en Firebase.</p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="appScreen" style="display:none">
+
+  <!-- BARRA DE PERFILES -->
+  <div class="profile-bar" id="profileBar">
+    <button class="add-profile-btn" onclick="openProfileModal()" title="Agregar perfil">+</button>
+  </div>
+
+  <header class="header">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2.2">
+          <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>
+        </svg>
+      </div>
+      <div class="logo-name">Medi<span>Clock</span></div>
+    </div>
+    <div class="header-right">
+      <div class="clock-display" id="clockDisplay">00:00:00</div>
+      <button class="user-btn" onclick="showUserMenu()">
+        <div class="user-avatar" id="userAvatar">?</div>
+        <span id="userName">Usuario</span>
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="main">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="today">Hoy</button>
+      <button class="tab-btn" data-tab="meds">Medicamentos</button>
+      <button class="tab-btn" data-tab="history">Historial</button>
+      <button class="tab-btn" data-tab="profile">Paciente</button>
+    </div>
+
+    <!-- HOY -->
+    <div class="panel active" id="panel-today">
+      <div id="alertBanners"></div>
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-num" id="statTaken" style="color:var(--green)">0</div>
+          <div class="stat-label">Tomadas hoy</div>
+          <div class="progress-bar"><div class="progress-fill" id="progressTaken" style="background:var(--green);width:0%"></div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="statPending" style="color:var(--orange)">0</div>
+          <div class="stat-label">Pendientes</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="statMissed" style="color:var(--red)">0</div>
+          <div class="stat-label">Perdidas</div>
+        </div>
+      </div>
+      <div class="section-header"><div class="section-title">Dosis de hoy</div></div>
+      <div id="todayList"></div>
+    </div>
+
+    <!-- MEDICAMENTOS -->
+    <div class="panel" id="panel-meds">
+      <div class="section-header">
+        <div class="section-title">Mis medicamentos</div>
+        <button class="btn-primary" onclick="openMedModal()">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          Agregar
+        </button>
+      </div>
+      <div class="meds-grid" id="medsList"></div>
+    </div>
+
+    <!-- HISTORIAL -->
+    <div class="panel" id="panel-history">
+      <div class="section-header">
+        <div class="section-title">Historial de dosis</div>
+        <button class="btn-secondary" onclick="clearAllHistory()" style="font-size:12px;padding:6px 12px">Limpiar todo</button>
+      </div>
+      <div class="history-filters">
+        <button class="filter-chip active" onclick="filterHistory('all',this)">Todas</button>
+        <button class="filter-chip" onclick="filterHistory('taken',this)">Tomadas</button>
+        <button class="filter-chip" onclick="filterHistory('missed',this)">Perdidas</button>
+      </div>
+      <div id="historyList"></div>
+    </div>
+  <!-- PACIENTE -->
+    <div class="panel" id="panel-profile">
+      <div id="profileContent">
+        <div class="no-profile">
+          <div class="no-profile-icon">👤</div>
+          <h3>Sin perfil seleccionado</h3>
+          <p>Agrega un perfil de paciente para ver su historia clínica</p>
+          <button class="btn-primary" onclick="openProfileModal()">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            Agregar paciente
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- MODAL AGREGAR/EDITAR MEDICAMENTO -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Agregar medicamento</div>
+      <button class="modal-close" onclick="closeMedModal()">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Búsqueda con autocomplete -->
+      <div class="form-group">
+        <label>Nombre del medicamento</label>
+        <div class="autocomplete-wrap">
+          <input type="text" id="medSearch" placeholder="Busca o escribe el nombre..." autocomplete="off">
+          <div class="autocomplete-list" id="autocompleteList"></div>
+        </div>
+      </div>
+
+      <!-- Dosis -->
+      <div class="form-group">
+        <label>Dosis</label>
+        <input type="text" id="doseInput" placeholder="Ej: 500mg, 1 cápsula, 2 gotas" autocomplete="off">
+      </div>
+
+      <!-- Emoji oculto -->
+      <input type="hidden" id="medEmoji" value="💊">
+
+      <!-- Indicaciones -->
+      <div class="form-group">
+        <label>Indicaciones <span style="font-weight:400;color:var(--text3)">(opcional)</span></label>
+        <textarea id="medNotes" rows="2" placeholder="Ej: Tomar con el estómago vacío"></textarea>
+      </div>
+
+      <!-- Horarios -->
+      <div class="form-group">
+        <label>Horarios</label>
+        <div class="times-row" id="timesRow"></div>
+        <div class="add-time">
+          <input type="time" id="newTime">
+          <button class="btn-secondary" onclick="addTime()">+ Agregar</button>
+        </div>
+      </div>
+
+      <!-- Color y activo -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="form-group">
+          <label>Color</label>
+          <select id="medColor">
+            <option value="blue">Azul</option>
+            <option value="green">Verde</option>
+            <option value="orange">Naranja</option>
+            <option value="purple">Morado</option>
+            <option value="red">Rojo</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Activo</label>
+          <select id="medActive">
+            <option value="1">Sí</option>
+            <option value="0">No</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+        <button class="btn-secondary" onclick="closeMedModal()">Cancelar</button>
+        <button class="btn-primary" onclick="saveMedForm()">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+          Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PERFIL PACIENTE -->
+<div class="modal-overlay" id="profileModalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="profileModalTitle">Nuevo paciente</div>
+      <button class="modal-close" onclick="closeProfileModal()">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Avatar -->
+      <div style="display:flex;justify-content:center;margin-bottom:20px">
+        <div class="profile-avatar-lg" id="profileAvatarPreview" onclick="changeProfileAvatar()">?</div>
+      </div>
+
+      <div class="form-group">
+        <label>Nombre completo</label>
+        <input type="text" id="profileName" placeholder="Ej: María García">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="form-group">
+          <label>Fecha de nacimiento</label>
+          <input type="date" id="profileBirthdate">
+        </div>
+        <div class="form-group">
+          <label>Género</label>
+          <select id="profileGender">
+            <option value="">Selecciona</option>
+            <option value="Masculino">Masculino</option>
+            <option value="Femenino">Femenino</option>
+            <option value="Otro">Otro</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="form-group">
+          <label>Tipo de sangre</label>
+          <select id="profileBloodType">
+            <option value="">Desconocido</option>
+            <option>O+</option><option>O-</option>
+            <option>A+</option><option>A-</option>
+            <option>B+</option><option>B-</option>
+            <option>AB+</option><option>AB-</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Teléfono de contacto</label>
+          <input type="tel" id="profilePhone" placeholder="300 000 0000">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Condición médica principal</label>
+        <input type="text" id="profileCondition" placeholder="Ej: Diabetes tipo 2, Hipertensión">
+      </div>
+      <div class="form-group">
+        <label>Médico tratante</label>
+        <input type="text" id="profileDoctor" placeholder="Ej: Dr. Juan Pérez">
+      </div>
+      <div class="form-group">
+        <label>Alergias</label>
+        <input type="text" id="profileAllergies" placeholder="Ej: Penicilina, AINEs">
+      </div>
+      <div class="form-group">
+        <label>Notas adicionales</label>
+        <textarea id="profileNotes" rows="2" placeholder="Observaciones importantes..."></textarea>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+        <button class="btn-secondary" onclick="closeProfileModal()">Cancelar</button>
+        <button class="btn-primary" onclick="saveProfileForm()">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+          Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- VISOR DE FOTOS -->
+<div class="photo-viewer" id="photoViewer">
+  <button class="photo-viewer-close" onclick="closePhotoViewer()">×</button>
+  <img id="photoViewerImg" src="" alt="">
+  <div class="photo-viewer-caption" id="photoViewerCaption"></div>
+</div>
+
+<!-- BOTÓN OPINIÓN -->
+<button class="feedback-btn" id="feedbackBtn">💬 Opinión</button>
+
+<!-- MODAL OPINIÓN -->
+<div id="feedbackModal">
+  <div class="feedback-content">
+    <!-- contenido inyectado por feedback.js -->
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
