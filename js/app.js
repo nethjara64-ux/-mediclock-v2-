@@ -1,5 +1,6 @@
 import { auth, db } from "./firebase.js";
 import { loginGoogle, logout, onAuth } from "./auth.js";
+import { getRedirectResult } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
 import { MED_DB, saveMed, deleteMed, subscribeMeds } from "./meds.js";
 import { subscribeLogs, saveLog, clearLogs, today, formatDate } from "./today.js";
 import { showToast, switchTab, openOverlay, closeOverlay, startClock } from "./ui.js";
@@ -27,6 +28,9 @@ window.showUserMenu = () => {
     logout();
   }
 };
+
+// Handle redirect result from Google login
+getRedirectResult(auth).catch(e => console.error("Redirect error:", e));
 
 onAuth(user => {
   document.getElementById("loadingScreen").style.display = "none";
@@ -392,7 +396,7 @@ initFeedback(() => currentUser);
 
 // ── SERVICE WORKER ─────────────────────────────────────────────────────────
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("../sw.js").catch(() => {});
+  navigator.serviceWorker.register("./sw.js").catch(() => {});
 }
 
 // ── PROFILES & PHOTOS ──────────────────────────────────────────────────────
